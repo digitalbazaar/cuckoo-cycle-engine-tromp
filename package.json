@@ -1,0 +1,16 @@
+{
+  "name": "cuckoo-cycle-engine-tromp",
+  "version": "0.1.0-0",
+  "description": "A Node.js wrapper for John Tromp's Cuckoo Cycle PoW solvers",
+  "main": "lib",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/digitalbazaar/cuckoo-cycle-engine-tromp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/digitalbazaar/cuckoo-cycle-engine-tromp/issues"
+  },
+  "homepage": "https://github.com/digitalbazaar/cuckoo-cycle-engine-tromp#readme",
+  "dependencies": {},
+  "peerDependencies": {}
+}
