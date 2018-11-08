@@ -3,6 +3,7 @@
  */
 'use strict';
 
+// FIXME: update to only load bindings on demand
 const addons = {
   lean_20_8: require('bindings')('cuckoo_lean_20_8'),
   lean_28_8: require('bindings')('cuckoo_lean_28_8'),
