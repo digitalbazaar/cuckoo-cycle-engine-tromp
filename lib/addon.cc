@@ -8,7 +8,12 @@
 
 #include <nan.h>
 //#include "addon.h"   // NOLINT(build/include)
-#include "pow.h"  // NOLINT(build/include)
+#include "cuckoo/src/lean_miner.hpp"  // NOLINT(build/include)
+
+// FIXME: from lean_miner
+#define MAXSOLS 8
+// FIXME: find better way to calculate ntrims
+#define PART_BITS 0
 
 using Nan::AsyncQueueWorker;
 using Nan::AsyncWorker;
@@ -19,6 +24,7 @@ using Nan::New;
 using Nan::Null;
 using Nan::Set;
 using Nan::To;
+using v8::Array;
 using v8::Function;
 using v8::FunctionTemplate;
 using v8::Handle;
@@ -33,12 +39,24 @@ class SolutionWorker : public AsyncWorker {
   public:
     SolutionWorker(
       const unsigned char* input,
+      const size_t inputLength,
       const unsigned graphSize,
       const unsigned edgeCount,
+      const unsigned nonce,
+      const unsigned maxNonces,
+      const unsigned threadCount,
+      const bool debug,
       Callback *callback)
-      : AsyncWorker(callback), graphSize(graphSize), edgeCount(edgeCount)) {
-        memcpy(this->input, input, 32);
-      }
+      : AsyncWorker(callback),
+      inputLength(inputLength),
+      graphSize(graphSize),
+      edgeCount(edgeCount),
+      nonce(nonce),
+      maxNonces(maxNonces),
+      threadCount(threadCount),
+      debug(debug) {
+      memcpy(this->input, input, inputLength);
+    }
     ~SolutionWorker() {}
 
     // Executed inside the worker-thread.
@@ -46,35 +64,53 @@ class SolutionWorker : public AsyncWorker {
     // here, so everything we need for input and output
     // should go on `this`.
     void Execute () {
-      // TODO: do things
-      Equihash equihash(n, k, seed);
-      Proof p = equihash.FindProof();
-      solution = p.inputs;
-      nonce = p.nonce;
-      //printhex("solution", &solution[0], solution.size());
+      unsigned ntrims = 1 + (PART_BITS+3)*(PART_BITS+4)/2;
+      nsols = 0;
+      solutions.resize(MAXSOLS * PROOFSIZE);
+      //printf("EXE t:%d t:%d n:%d m:%d\n", nthreads, ntrims, nonce, maxNonces);
+      lean_miner(
+        threadCount, ntrims,
+        nonce, maxNonces,
+        (char *)input, inputLength,
+        &solutions[0], nonces, &nsols,
+        debug);
     }
 
     // Executed when the async work is complete
     // this function will be run inside the main event loop
     // so it is safe to use V8 again
     void HandleOKCallback () {
-      // TODO: do things
+      // result is of format:
+      // {
+      //   solutions: [ { nonce: ..., edges: ...}, ... ]
+      // }
       HandleScope scope;
-      Local<Object> obj = Nan::New<Object>();
-      Local<Object> proofValue =
-        Nan::CopyBuffer((const char*)&solution[0], solution.size() * 4)
-          .ToLocalChecked();
+      Local<Object> result = Nan::New<Object>();
+      Local<Array> solutions = New<v8::Array>(nsols);
+      result->Set(New("solutions").ToLocalChecked(), solutions);
+      /*
+      printf("S[%d]:", nsols);
+      for(unsigned z = 0; z < PROOFSIZE * MAXSOLS; ++z) {
+        printf(" %d", this->solutions[z]);
+      }
+      printf("\n");
+      */
 
-       //printhex("solution COPY", &solution[0], solution.size());
+      for(unsigned s = 0; s < nsols; ++s) {
+        Local<Object> solution = Nan::New<Object>();
+        Local<Array> edges = New<v8::Array>(PROOFSIZE);
+        for(unsigned i = 0; i < PROOFSIZE; ++i) {
+          Set(edges, i, New(this->solutions[(s * PROOFSIZE) + i]));
+        }
 
-      obj->Set(New("n").ToLocalChecked(), New(n));
-      obj->Set(New("k").ToLocalChecked(), New(k));
-      obj->Set(New("nonce").ToLocalChecked(), New(nonce));
-      obj->Set(New("value").ToLocalChecked(), proofValue);
+        solution->Set(New("nonce").ToLocalChecked(), New(nonces[s]));
+        solution->Set(New("edges").ToLocalChecked(), edges);
+        Set(solutions, s, solution);
+      }
 
       Local<Value> argv[] = {
         Null(),
-        obj
+        result
       };
 
       callback->Call(2, argv);
@@ -82,10 +118,16 @@ class SolutionWorker : public AsyncWorker {
 
   private:
     unsigned char input[32];
+    size_t inputLength;
     unsigned graphSize;
     unsigned edgeCount;
-    // TODO: do things
-    std::vector<Input> solution;
+    unsigned nonce;
+    unsigned maxNonces;
+    unsigned threadCount;
+    unsigned nsols;
+    bool debug;
+    std::vector<uint32_t> solutions;
+    unsigned nonces[MAXSOLS];
 };
 
 NAN_METHOD(Solve) {
@@ -102,20 +144,33 @@ NAN_METHOD(Solve) {
 
    Callback *callback = new Callback(info[1].As<Function>());
    Handle<Object> object = Handle<Object>::Cast(info[0]);
-   Handle<Value> nValue = object->Get(New("n").ToLocalChecked());
-   Handle<Value> kValue = object->Get(New("k").ToLocalChecked());
-   Handle<Value> input = object->Get(New("input").ToLocalChecked());
+   Handle<Value> inputValue =
+      object->Get(New("input").ToLocalChecked());
+   Handle<Value> graphSizeValue =
+      object->Get(New("graphSize").ToLocalChecked());
+   Handle<Value> edgeCountValue =
+      object->Get(New("edgeCount").ToLocalChecked());
+   Handle<Value> nonceValue =
+      object->Get(New("nonce").ToLocalChecked());
+   Handle<Value> maxNoncesValue =
+      object->Get(New("maxNonces").ToLocalChecked());
+   Handle<Value> threadCountValue =
+      object->Get(New("threadCount").ToLocalChecked());
+   Handle<Value> debugValue =
+      object->Get(New("debug").ToLocalChecked());
 
-   const unsigned n = To<uint32_t>(nValue).FromJust();
-   const unsigned k = To<uint32_t>(kValue).FromJust();
-   size_t bufferLength = node::Buffer::Length(input) / 4;
-   unsigned* input = (unsigned*)node::Buffer::Data(input);
+   unsigned char* input = (unsigned char*)node::Buffer::Data(inputValue);
+   size_t inputLength = node::Buffer::Length(inputValue);
+   const unsigned graphSize = To<uint32_t>(graphSizeValue).FromJust();
+   const unsigned edgeCount = To<uint32_t>(edgeCountValue).FromJust();
+   const unsigned nonce = To<uint32_t>(nonceValue).FromJust();
+   const unsigned maxNonces = To<uint32_t>(maxNoncesValue).FromJust();
+   const unsigned threadCount = To<uint32_t>(threadCountValue).FromJust();
+   const bool debug = To<bool>(debugValue).FromJust();
 
-   //printhex("seed", seedBuffer, bufferLength);
-
-   Seed seed(seedBuffer, bufferLength);
-
-   AsyncQueueWorker(new SolutionWorker(n, k, seed, callback));
+   AsyncQueueWorker(new SolutionWorker(
+      (unsigned char*)input, inputLength, graphSize, edgeCount, nonce,
+      maxNonces, threadCount, debug, callback));
 }
 
 NAN_MODULE_INIT(InitAll) {
