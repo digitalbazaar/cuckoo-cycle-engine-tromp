@@ -3,34 +3,42 @@
  */
 'use strict';
 
-// FIXME: update to only load bindings on demand
-const addons = {
-  lean_20_8: require('bindings')('cuckoo_lean_20_8'),
-  lean_28_8: require('bindings')('cuckoo_lean_28_8'),
-  lean_30_8: require('bindings')('cuckoo_lean_30_8'),
-  lean_32_8: require('bindings')('cuckoo_lean_32_8'),
+// bindings are built with a matrix of parameters
+const _graphSizes = [20, 28, 30, 32];
+const _edgeCounts = [8, 24, 42];
+const _sipHashes = ['SipHash-2-4', 'SipHash-2-5'];
+// cache of loaded bindings
+const _addons = {};
 
-  lean_20_20: require('bindings')('cuckoo_lean_20_20'),
-  lean_28_20: require('bindings')('cuckoo_lean_28_20'),
-  lean_30_20: require('bindings')('cuckoo_lean_30_20'),
-  lean_32_20: require('bindings')('cuckoo_lean_32_20'),
-
-  lean_20_32: require('bindings')('cuckoo_lean_20_32'),
-  lean_28_32: require('bindings')('cuckoo_lean_28_32'),
-  lean_30_32: require('bindings')('cuckoo_lean_30_32'),
-  lean_32_32: require('bindings')('cuckoo_lean_32_32'),
-
-  lean_20_42: require('bindings')('cuckoo_lean_20_42'),
-  lean_28_42: require('bindings')('cuckoo_lean_28_42'),
-  lean_30_42: require('bindings')('cuckoo_lean_30_42'),
-  lean_32_42: require('bindings')('cuckoo_lean_32_42')
-};
+function getAddon({graphSize, edgeCount, sipHash}) {
+  if(!_graphSizes.includes(graphSize)) {
+    throw new RangeError(`Graph size "${graphSize}" not supported.`);
+  }
+  if(!_edgeCounts.includes(edgeCount)) {
+    throw new RangeError(`Edge count "${edgeCount}" not supported.`);
+  }
+  if(!_sipHashes.includes(sipHash)) {
+    throw new RangeError(`Siphash "${sipHash}" not supported.`);
+  }
+  let sipHashName;
+  if(sipHash === 'SipHash-2-4') {
+    sipHashName = '2_4';
+  } else if(sipHash === 'SipHash-2-5') {
+    sipHashName = '2_5';
+  }
+  const name = `cuckoo_lean_g${graphSize}_e${edgeCount}_s${sipHashName}`;
+  let addon = _addons[name];
+  if(!addon) {
+    addon = _addons[name] = require('bindings')(name);
+  }
+  return addon;
+}
 
 const api = {};
 module.exports = api;
 
 api.solve = async ({
-  engine, input, graphSize, edgeCount, nonce, maxNonces
+  engine, input, graphSize, edgeCount, sipHash, nonce, maxNonces
 }) => {
   const _engineOpts = typeof engine === 'string' ? {} : engine;
   const {
@@ -38,10 +46,7 @@ api.solve = async ({
     debug = false
   } = _engineOpts;
 
-  const addon = addons[`lean_${graphSize}_${edgeCount}`]
-  if(!addon) {
-    throw new RangeError(`Graph size of ${graphSize} not supported.`);
-  }
+  const addon = getAddon({graphSize, edgeCount, sipHash});
   return new Promise((resolve, reject) => {
     const opts = {
       input, graphSize, edgeCount, nonce, maxNonces, threadCount, debug
