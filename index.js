@@ -4,13 +4,21 @@
 'use strict';
 
 // bindings are built with a matrix of parameters
+const _variants = [/*'cuckoo', */ 'cuckatoo'];
+const _miners = ['lean'/*, 'mean'*/];
 const _graphSizes = [20, 28, 30, 32];
 const _edgeCounts = [8, 24, 42];
 const _sipHashes = ['SipHash-2-4', 'SipHash-2-5'];
 // cache of loaded bindings
 const _addons = {};
 
-function getAddon({graphSize, edgeCount, sipHash}) {
+function getAddon({variant = 'cuckatoo', miner = 'lean', graphSize, edgeCount, sipHash}) {
+  if(!_variants.includes(variant)) {
+    throw new RangeError(`Variant "${variant}" not supported.`);
+  }
+  if(!_miners.includes(miner)) {
+    throw new RangeError(`Miner "${miner}" not supported.`);
+  }
   if(!_graphSizes.includes(graphSize)) {
     throw new RangeError(`Graph size "${graphSize}" not supported.`);
   }
@@ -26,7 +34,7 @@ function getAddon({graphSize, edgeCount, sipHash}) {
   } else if(sipHash === 'SipHash-2-5') {
     sipHashName = '2_5';
   }
-  const name = `cuckoo_lean_g${graphSize}_e${edgeCount}_s${sipHashName}`;
+  const name = `${variant}_${miner}_g${graphSize}_e${edgeCount}_s${sipHashName}`;
   let addon = _addons[name];
   if(!addon) {
     addon = _addons[name] = require('bindings')(name);

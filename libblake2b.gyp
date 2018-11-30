@@ -5,7 +5,7 @@
       #"type": "<(library)",
       "type": "static_library",
       "sources": [
-      	"lib/cuckoo/src/blake2b-ref.c",
+        "lib/cuckoo/src/crypto/blake2b-ref.c",
       ],
       "cflags": [
         "-std=gnu11",

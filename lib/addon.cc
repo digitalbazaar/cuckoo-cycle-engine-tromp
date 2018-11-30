@@ -1,19 +1,21 @@
 /*********************************************************************
- * NAN - Native Abstractions for Node.js
+ * Cuckoo Cycle native bindings for Node.js
  *
- * Copyright (c) 2017 NAN contributors
+ * Copyright (c) 2018 Digital Bazaar, Inc.
  *
  * MIT License <https://github.com/nodejs/nan/blob/master/LICENSE.md>
  ********************************************************************/
 
 #include <nan.h>
 //#include "addon.h"   // NOLINT(build/include)
-#include "cuckoo/src/lean_miner.hpp"  // NOLINT(build/include)
+#include "cuckoo/src/cuckatoo/lean.hpp"  // NOLINT(build/include)
 
 // FIXME: from lean_miner
-#define MAXSOLS 8
+//#define MAXSOLS 8
 // FIXME: find better way to calculate ntrims
-#define PART_BITS 0
+//#define PART_BITS 0
+// FIXME
+#define HEADERLEN 80
 
 using Nan::AsyncQueueWorker;
 using Nan::AsyncWorker;
@@ -64,6 +66,7 @@ class SolutionWorker : public AsyncWorker {
     // here, so everything we need for input and output
     // should go on `this`.
     void Execute () {
+      /*
       unsigned ntrims = 1 + (PART_BITS+3)*(PART_BITS+4)/2;
       nsols = 0;
       solutions.resize(MAXSOLS * PROOFSIZE);
@@ -74,6 +77,17 @@ class SolutionWorker : public AsyncWorker {
         (char *)input, inputLength,
         &solutions[0], nonces, &nsols,
         debug);
+      */
+       memset(header, 0, sizeof(header));
+       memcpy(header, input, inputLength);
+       SolverParams params;
+       fill_default_params(&params);
+       params.nthreads = threadCount;
+       //params.ntrims = ;
+       SolverCtx *ctx = create_solver_ctx(&params);
+       //run_solver(ctx, (char *)input, inputLength, nonce, maxNonces, &solutions, &stats);
+       run_solver(ctx, header, sizeof(header), nonce, maxNonces, &solutions, &stats);
+       destroy_solver_ctx(ctx);
     }
 
     // Executed when the async work is complete
@@ -86,7 +100,8 @@ class SolutionWorker : public AsyncWorker {
       // }
       HandleScope scope;
       Local<Object> result = Nan::New<Object>();
-      Local<Array> solutions = New<v8::Array>(nsols);
+      //Local<Array> solutions = New<v8::Array>(nsols);
+      Local<Array> solutions = New<v8::Array>(this->solutions.num_sols);
       result->Set(New("solutions").ToLocalChecked(), solutions);
       /*
       printf("S[%d]:", nsols);
@@ -96,14 +111,16 @@ class SolutionWorker : public AsyncWorker {
       printf("\n");
       */
 
-      for(unsigned s = 0; s < nsols; ++s) {
+      for(unsigned s = 0; s < this->solutions.num_sols; ++s) {
         Local<Object> solution = Nan::New<Object>();
         Local<Array> edges = New<v8::Array>(PROOFSIZE);
         for(unsigned i = 0; i < PROOFSIZE; ++i) {
-          Set(edges, i, New(this->solutions[(s * PROOFSIZE) + i]));
+          //Set(edges, i, New(this->solutions[(s * PROOFSIZE) + i]));
+          Set(edges, i, New((uint32_t)this->solutions.sols[s].proof[i]));
         }
 
-        solution->Set(New("nonce").ToLocalChecked(), New(nonces[s]));
+        //solution->Set(New("nonce").ToLocalChecked(), New(nonces[s]));
+        solution->Set(New("nonce").ToLocalChecked(), New((uint32_t)this->solutions.sols[s].nonce));
         solution->Set(New("edges").ToLocalChecked(), edges);
         Set(solutions, s, solution);
       }
@@ -117,6 +134,7 @@ class SolutionWorker : public AsyncWorker {
     }
 
   private:
+    char header[HEADERLEN];
     unsigned char input[32];
     size_t inputLength;
     unsigned graphSize;
@@ -126,8 +144,10 @@ class SolutionWorker : public AsyncWorker {
     unsigned threadCount;
     unsigned nsols;
     bool debug;
-    std::vector<uint32_t> solutions;
-    unsigned nonces[MAXSOLS];
+    //std::vector<uint32_t> solutions;
+    //unsigned nonces[MAXSOLS];
+    SolverSolutions solutions;
+    SolverStats stats;
 };
 
 NAN_METHOD(Solve) {
