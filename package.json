@@ -11,6 +11,20 @@
     "url": "https://github.com/digitalbazaar/cuckoo-cycle-engine-tromp/issues"
   },
   "homepage": "https://github.com/digitalbazaar/cuckoo-cycle-engine-tromp#readme",
-  "dependencies": {},
-  "peerDependencies": {}
+  "scripts": {
+    "preinstall": "if [ ! -e lib/cuckoo ]; then git clone https://github.com/digitalbazaar/cuckoo.git#libatoo lib/cuckoo; fi",
+    "install": "node-gyp rebuild",
+    "test": "mocha",
+    "benchmark": "node benchmark/benchmark.js"
+  },
+  "dependencies": {
+    "bindings": "^1.3.0",
+    "cuckoo-cycle": "digitalbazaar/cuckoo-cycle#dev",
+    "nan": "^2.11.1"
+  },
+  "peerDependencies": {},
+  "devDependencies": {
+    "benchmark": "^2.1.4",
+    "mocha": "^5.2.0"
+  }
 }
